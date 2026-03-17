@@ -372,7 +372,7 @@
         <h1>일반계좌 / 연금계좌 자산 기록</h1>
         <p>
           날짜별 자산 평가액을 저장하고, 비중과 추이를 한 화면에서 볼 수 있게 만든 버전입니다.
-          로그인 후 사용하면 계정별로 데이터가 Firebase Firestore에 저장됩니다.
+          로그인 후 사용하면 계정별로 Firebase Firestore에 저장됩니다.
         </p>
       </div>
       <div id="userBox" class="meta">로그인되지 않음</div>
@@ -438,7 +438,7 @@
             </div>
             <div class="footer-note">
               일반계좌의 달러 자산은 입력한 원/달러 환율을 기준으로 원화 환산됩니다.
-              나스닥 선물은 요청하신 식 <b>증거금 + (현재가 - 매수단가) × 계약 수</b>로 평가합니다.
+              나스닥 선물은 <b>증거금 + (현재가 - 매수단가) × 계약 수</b> 식으로 평가합니다.
             </div>
           </div>
         </div>
@@ -495,29 +495,24 @@
       collection,
       getDocs,
       query,
-      where,
-      orderBy
+      where
     } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
-    // 1) 여기에 본인 Firebase 프로젝트 설정값을 붙여 넣으세요.
-    // Firebase Console > 프로젝트 설정 > 내 앱 > SDK 설정 및 구성 > 구성
-    
-const firebaseConfig = {
-  apiKey: "AIzaSyBzq-WUWJ26hSRXNUfC9mCsOUhi9sAexT8",
-  authDomain: "portfolio-app-62b56.firebaseapp.com",
-  projectId: "portfolio-app-62b56",
-  storageBucket: "portfolio-app-62b56.firebasestorage.app",
-  messagingSenderId: "660721127788",
-  appId: "1:660721127788:web:6bbc5659e9058cb6dd6349"
-};
-    
+    const firebaseConfig = {
+      apiKey: "AIzaSyBzq-WUWJ26hSRXNUfC9mCsOUhi9sAexT8",
+      authDomain: "portfolio-app-62b56.firebaseapp.com",
+      projectId: "portfolio-app-62b56",
+      storageBucket: "portfolio-app-62b56.firebasestorage.app",
+      messagingSenderId: "660721127788",
+      appId: "1:660721127788:web:6bbc5659e9058cb6dd6349"
+    };
+
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
 
     await setPersistence(auth, browserLocalPersistence);
-
-    const provider = new GoogleAuthProvider();
 
     const TARGET_GENERAL = {
       BTC: 5,
@@ -582,16 +577,23 @@ const firebaseConfig = {
       try {
         await signInWithPopup(auth, provider);
       } catch (err) {
+        console.error(err);
         alert("로그인 중 오류가 발생했습니다: " + err.message);
       }
     });
 
     logoutBtn.addEventListener("click", async () => {
-      await signOut(auth);
+      try {
+        await signOut(auth);
+      } catch (err) {
+        console.error(err);
+        alert("로그아웃 중 오류가 발생했습니다: " + err.message);
+      }
     });
 
     onAuthStateChanged(auth, (user) => {
       state.user = user || null;
+
       if (user) {
         loginBtn.classList.add("hidden");
         logoutBtn.classList.remove("hidden");
@@ -612,6 +614,8 @@ const firebaseConfig = {
       accountScreen.classList.add("hidden");
       homeScreen.classList.remove("hidden");
       trendSection.classList.add("hidden");
+      snapshotList.innerHTML = "";
+      destroyCharts();
     });
 
     enterAssetsBtn.addEventListener("click", () => {
@@ -645,6 +649,8 @@ const firebaseConfig = {
       homeScreen.classList.add("hidden");
       accountScreen.classList.remove("hidden");
       trendSection.classList.add("hidden");
+      snapshotList.innerHTML = "";
+      destroyCharts();
 
       if (type === "general") {
         accountTitle.textContent = "일반계좌";
@@ -807,6 +813,7 @@ const firebaseConfig = {
           if (field.placeholder) input.placeholder = field.placeholder;
           if (field.step) input.step = field.step;
         }
+
         input.id = "field_" + field.name;
         input.dataset.name = field.name;
         input.value = state.wizard.data[field.name] ?? "";
@@ -916,6 +923,7 @@ const firebaseConfig = {
           qty: Number(qty)
         });
       }
+
       state.wizard.index += 1;
       renderStep();
     }
@@ -1045,11 +1053,13 @@ const firebaseConfig = {
       if (type === "general") {
         const fx = Number(data.fx);
         const assets = [];
+
         GENERAL_ASSETS.forEach(asset => {
           const currency = data[`${asset}_currency`] || "USD";
           const price = Number(data[`${asset}_price`] || 0);
           const qty = Number(data[`${asset}_qty`] || 0);
           const valueKrw = convertToKrw(price * qty, currency, fx);
+
           assets.push({
             name: asset,
             price,
@@ -1086,19 +1096,11 @@ const firebaseConfig = {
           };
         });
 
-        if (extraItems.length) {
-          assets.push({
-            name: "기타",
-            valueKrw: otherTotal,
-            items: extraItems
-          });
-        } else {
-          assets.push({
-            name: "기타",
-            valueKrw: 0,
-            items: []
-          });
-        }
+        assets.push({
+          name: "기타",
+          valueKrw: otherTotal,
+          items: extraItems
+        });
 
         const totalKrw = assets.reduce((sum, a) => sum + Number(a.valueKrw || 0), 0);
 
@@ -1157,29 +1159,31 @@ const firebaseConfig = {
     async function renderSnapshots() {
       if (!state.user || !state.currentAccount) return;
 
-const qRef = query(
-  collection(db, "users", state.user.uid, "portfolioSnapshots"),
-  where("accountType", "==", state.currentAccount)
-);
+      try {
+        const qRef = query(
+          collection(db, "users", state.user.uid, "portfolioSnapshots"),
+          where("accountType", "==", state.currentAccount)
+        );
 
-const snap = await getDocs(qRef);
-const docs = snap.docs
-  .map(d => ({ id: d.id, ...d.data() }))
-  .sort((a, b) => a.date.localeCompare(b.date));
+        const snap = await getDocs(qRef);
+        const docs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
 
-      const snap = await getDocs(qRef);
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        trendSection.classList.remove("hidden");
 
-      trendSection.classList.remove("hidden");
+        if (!docs.length) {
+          snapshotList.innerHTML = `<div class="empty">아직 저장된 기록이 없습니다. 먼저 "현재 자산 입력하기"로 데이터를 넣어주세요.</div>`;
+          destroyCharts();
+          return;
+        }
 
-      if (!docs.length) {
-        snapshotList.innerHTML = `<div class="empty">아직 저장된 기록이 없습니다. 먼저 "현재 자산 입력하기"로 데이터를 넣어주세요.</div>`;
-        destroyCharts();
-        return;
+        snapshotList.innerHTML = docs.map(doc => renderSnapshotCard(doc, state.currentAccount)).join("");
+        drawCharts(docs, state.currentAccount);
+      } catch (err) {
+        console.error(err);
+        alert("기록을 불러오는 중 오류가 발생했습니다: " + err.message);
       }
-
-      snapshotList.innerHTML = docs.map(doc => renderSnapshotCard(doc, state.currentAccount)).join("");
-      drawCharts(docs, state.currentAccount);
     }
 
     function renderSnapshotCard(doc, type) {
@@ -1284,7 +1288,11 @@ const docs = snap.docs
         },
         options: {
           responsive: true,
-          plugins: { legend: { labels: { color: "#eaf0ff" } } },
+          plugins: {
+            legend: {
+              labels: { color: "#eaf0ff" }
+            }
+          },
           scales: {
             x: { ticks: { color: "#c6d5ff" }, grid: { color: "rgba(255,255,255,.08)" } },
             y: { ticks: { color: "#c6d5ff" }, grid: { color: "rgba(255,255,255,.08)" } }
@@ -1312,7 +1320,11 @@ const docs = snap.docs
         data: { labels, datasets },
         options: {
           responsive: true,
-          plugins: { legend: { labels: { color: "#eaf0ff" } } },
+          plugins: {
+            legend: {
+              labels: { color: "#eaf0ff" }
+            }
+          },
           scales: {
             x: { ticks: { color: "#c6d5ff" }, grid: { color: "rgba(255,255,255,.08)" } },
             y: { ticks: { color: "#c6d5ff" }, grid: { color: "rgba(255,255,255,.08)" } }
