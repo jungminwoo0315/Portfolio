@@ -1157,11 +1157,15 @@ const firebaseConfig = {
     async function renderSnapshots() {
       if (!state.user || !state.currentAccount) return;
 
-      const qRef = query(
-        collection(db, "users", state.user.uid, "portfolioSnapshots"),
-        where("accountType", "==", state.currentAccount),
-        orderBy("date", "asc")
-      );
+const qRef = query(
+  collection(db, "users", state.user.uid, "portfolioSnapshots"),
+  where("accountType", "==", state.currentAccount)
+);
+
+const snap = await getDocs(qRef);
+const docs = snap.docs
+  .map(d => ({ id: d.id, ...d.data() }))
+  .sort((a, b) => a.date.localeCompare(b.date));
 
       const snap = await getDocs(qRef);
       const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
